@@ -28,7 +28,7 @@ It forces Minecraft to communicate directly with your system's **native OpenGL E
 
 #### 📱 On Android (Required Setup)
 1.  **Check Requirements:** Ensure your device and GPU drivers support **OpenGL ES 3.2**.
-2.  **Custom Launcher:** You must use the specific launcher build from **ZalithLauncher_ESCraft**. Download the artifact from the [GitHub Actions here](https://github.com/ItzGreenCat/ZalithLauncher_ESCraft/actions).
+2.  **Custom Launcher:** You must use the specific launcher build from **ZalithLauncher_ESCraft**. Download the artifact from the [GitHub Actions here](https://github.com/ItzGreenCat/ZalithLauncher_ESCraft/actions). And dont choose GL4ES Renderer
 3.  **JVM Arguments:** Add the following line to your launcher's JVM Arguments (Runtime arguments):
     ```
     -Dorg.lwjgl.opengles.libname=libGLESv2.so
@@ -62,7 +62,7 @@ ESCraft 是一个关键的兼容性模组，旨在为 Minecraft 提供**原生 O
 
 #### 📱 安卓设备 (必须按步骤操作)
 1.  **检查要求：** 确保你的设备硬件及驱动支持 **OpenGL ES 3.2** 或更高版本。
-2.  **获取启动器：** 你必须使用 **ZalithLauncher_ESCraft** 的定制版本。请前往 [GitHub Actions](https://github.com/ItzGreenCat/ZalithLauncher_ESCraft/actions) 下载构建好的安装包。
+2.  **获取启动器：** 你必须使用 **ZalithLauncher_ESCraft** 的定制版本。请前往 [GitHub Actions](https://github.com/ItzGreenCat/ZalithLauncher_ESCraft/actions) 下载构建好的安装包。并且不要选择 GL4ES 渲染器
 3.  **添加启动参数：** 在启动器的 JVM 参数（运行参数）设置中，必须添加以下代码：
     ```
     -Dorg.lwjgl.opengles.libname=libGLESv2.so
