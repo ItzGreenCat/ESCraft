@@ -22,7 +22,6 @@ It forces Minecraft to communicate directly with your system's **native OpenGL E
 * **Native GLES Integration:** Bypasses legacy translation layers to use your GPU's native drivers directly.
 * **Crash Fixes:** Solves the critical `java.lang.IllegalStateException: There is no OpenGL ES context current` error prevents the game from starting.
 * **GLFW Bypass:** Fixes the `NoSuchMethodError: glfwGetProcAddress` issue found in stripped-down or custom LWJGL builds.
-* **Smart Detection:** Built-in environment detection ensures the mod only activates on supported GLES platforms.
 
 ### 📥 Installation Guide
 
@@ -56,7 +55,6 @@ ESCraft 是一个关键的兼容性模组，旨在为 Minecraft 提供**原生 O
 * **原生 GLES 集成：** 绕过旧的转换层，直接调用 GPU 的原生驱动，提升启动成功率。
 * **修复启动崩溃：** 彻底解决导致游戏无法启动的 `java.lang.IllegalStateException: There is no OpenGL ES context current` 错误。
 * **修复 LWJGL 缺失方法：** 修复了部分精简版或定制版 LWJGL 中 `NoSuchMethodError: glfwGetProcAddress` 的问题。
-* **智能环境检测：** 模组内置智能检测逻辑，仅在检测到 GLES 环境时激活修复。
 
 ### 📥 安装指南
 
