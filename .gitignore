@@ -1,0 +1,27 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+
+# Minecraft Run folders
+run/
+run_client/
+run_server/
+logs/
+crash-reports/
+
+# Mac System
+.DS_Store
+
+# Fabric/Loom specifics
+.fabric/
+bin/

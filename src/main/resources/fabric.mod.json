@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "escraft",
+  "version": "${version}",
+  "name": "ESCraft",
+  "description": "",
+  "authors": ["ItzOnyxCat"],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/escraft/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "dev.onyxcat.escraft.ESCraft"
+    ]
+  },
+  "mixins": [
+    "escraft.mixins.json"
+  ],
+  "accessWidener": "escraft.accesswidener",
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}"
+  }
+}

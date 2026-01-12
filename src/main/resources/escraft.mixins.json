@@ -1,0 +1,45 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.onyxcat.escraft.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MixinGLES"
+  ],
+  "client": [
+    "BufferManagerAccessor",
+    "ESCraftAccessors$CompiledShaderPipelineAccessor",
+    "ESCraftAccessors$GlGpuBufferAccessor",
+    "ESCraftAccessors$GlSamplerAccessor",
+    "ESCraftAccessors$GlTextureAccessor",
+    "ESCraftAccessors$GlTimerQueryInvoker",
+    "ESCraftAccessors$RenderPassImplAccessor",
+    "ESCraftAccessors$SamplerAccessor",
+    "ESCraftAccessors$SamplerUniformAccessor",
+    "ESCraftAccessors$ShaderProgramAccessor",
+    "ESCraftAccessors$TexelBufferAccessor",
+    "ESCraftAccessors$UniformBufferAccessor",
+    "GlTimerQueryInvoker",
+    "MixinBufferManager",
+    "MixinBufferManager$MixinDefaultBufferManager",
+    "MixinCapabilityTracker",
+    "MixinGlBackend",
+    "MixinGlCommandEncoder",
+    "MixinGlConst",
+    "MixinGlDebug",
+    "MixinGlSampler",
+    "MixinGlStateManager",
+    "MixinGlTimerQuery",
+    "MixinGpuBufferManager",
+    "MixinRenderSystem",
+    "MixinShaderProgram",
+    "MixinVertexBufferManager",
+    "MixinWindow"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
