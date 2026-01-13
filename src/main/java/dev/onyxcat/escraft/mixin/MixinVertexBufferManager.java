@@ -13,16 +13,8 @@ public abstract class MixinVertexBufferManager {
     
     @Overwrite
     public static VertexBufferManager create(GLCapabilities capabilities, DebugLabelManager labeler, Set<String> usedCapabilities) {
-
-
-
         System.out.println("[ESCraft] 正在为 GLES 创建 VertexBufferManager (强制使用 Default 模式)");
-
-
-
-
         try {
-
             Class<?> defaultClass = Class.forName("net.minecraft.client.gl.VertexBufferManager$DefaultVertexBufferManager");
             java.lang.reflect.Constructor<?> constructor = defaultClass.getDeclaredConstructor(DebugLabelManager.class);
             constructor.setAccessible(true);

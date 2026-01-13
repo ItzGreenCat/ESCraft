@@ -16,13 +16,10 @@ public class MixinGLES {
     
     @Overwrite
     public static void create(FunctionProvider provider) {
-
         if (functionProvider != null) {
             throw new IllegalStateException("OpenGL ES has already been created.");
         } else {
-
             functionProvider = provider;
-
             System.out.println("[ESCraft] GLES.create() 劫持成功：已跳过 ThreadLocal 状态检查。");
         }
     }

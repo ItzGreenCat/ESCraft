@@ -11,6 +11,7 @@ import net.minecraft.client.util.TextureAllocationException;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.opengles.GLES20;
+import org.lwjgl.opengles.GLES30;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -75,128 +76,82 @@ public abstract class MixinGlBackend {
     public GpuTexture createTexture(@Nullable String label, int usage, TextureFormat format, int width, int height, int depth, int mips) {
         if (mips < 1) throw new IllegalArgumentException("mipLevels must be at least 1");
 
+        int maxPossibleMips = 1 + (int)(Math.log(Math.max(width, height)) / Math.log(2));
+        if (mips > maxPossibleMips) {
+            mips = maxPossibleMips;
+        }
+
         boolean isCubemap = (usage & 16) != 0;
         int textureId = GlStateManager._genTexture();
         String name = (label == null) ? String.valueOf(textureId) : label;
 
-        int target = isCubemap ? 34067 : 3553;
-        GLES20.glBindTexture(target, textureId);
+        int target = isCubemap ? GLES30.GL_TEXTURE_CUBE_MAP : GLES30.GL_TEXTURE_2D;
+        GLES30.glBindTexture(target, textureId);
 
+        GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_MAX_LEVEL, mips - 1);
+        GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_BASE_LEVEL, 0);
 
-        GLES20.glTexParameteri(target, 33085, mips - 1);
-        GLES20.glTexParameteri(target, 33082, 0);
-
-
-        boolean isDepthTexture = false;
-
-
-        try {
-
-
-            if (format != null) {
-                String formatName = format.toString();
-                isDepthTexture = formatName.contains("DEPTH") ||
-                        formatName.contains("DEPTH_COMPONENT");
-            }
-        } catch (Exception e) {
-
+        boolean isDepth = false;
+        if (format != null) {
+            String fmt = format.toString();
+            isDepth = fmt.contains("DEPTH");
         }
 
-        if (isDepthTexture) {
-
-            GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
-            GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST);
-            GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-            GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        }
-
-
-        int internalFormat;
+        int storageInternalFormat;
+        int fallbackInternalFormat;
         int externalFormat;
         int type;
 
-        if (isDepthTexture) {
+        if (isDepth) {
+            storageInternalFormat = GLES30.GL_DEPTH_COMPONENT24;
+            fallbackInternalFormat = GLES30.GL_DEPTH_COMPONENT;
+            externalFormat = GLES30.GL_DEPTH_COMPONENT;
+            type = GLES30.GL_UNSIGNED_INT;
 
-            internalFormat = GLES20.GL_DEPTH_COMPONENT16;
-            externalFormat = GLES20.GL_DEPTH_COMPONENT;
-            type = GLES20.GL_UNSIGNED_SHORT;
+            GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
+            GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+            GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+            GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
         } else {
-            try {
-
-                Class<?> glConstClass = Class.forName("com.mojang.blaze3d.opengl.GlConst");
-                java.lang.reflect.Method toGlInternalId = glConstClass.getDeclaredMethod("toGlInternalId", TextureFormat.class);
-                java.lang.reflect.Method toGlExternalId = glConstClass.getDeclaredMethod("toGlExternalId", TextureFormat.class);
-                java.lang.reflect.Method toGlType = glConstClass.getDeclaredMethod("toGlType", TextureFormat.class);
-
-                internalFormat = (int) toGlInternalId.invoke(null, format);
-                externalFormat = (int) toGlExternalId.invoke(null, format);
-                type = (int) toGlType.invoke(null, format);
-            } catch (Exception e) {
-
-                System.err.println("[ESCraft] 格式转换失败，使用 RGBA 回退: " + e.getMessage());
-                internalFormat = GLES20.GL_RGBA;
-                externalFormat = GLES20.GL_RGBA;
-                type = GLES20.GL_UNSIGNED_BYTE;
-            }
+            storageInternalFormat = GLES30.GL_RGBA8;
+            fallbackInternalFormat = GLES30.GL_RGBA;
+            externalFormat = GLES30.GL_RGBA;
+            type = GLES30.GL_UNSIGNED_BYTE;
         }
 
-
-        int err = GLES20.glGetError();
-        if (err != 0) {
-            System.err.println("[ESCraft] 纹理创建前有未清除的 OpenGL 错误: " + err);
-        }
+        while (GLES30.glGetError() != GLES30.GL_NO_ERROR);
 
         try {
+            GLES30.glTexStorage2D(target, mips, storageInternalFormat, width, height);
+        } catch (Exception | Error e) {
+            System.out.println("[ESCraft] 纹理 " + name + " (ID:" + textureId + ") Storage 分配失败，转为 Image 模式");
+
+            while (GLES30.glGetError() != GLES30.GL_NO_ERROR);
+
             for (int level = 0; level < mips; ++level) {
                 int w = Math.max(1, width >> level);
                 int h = Math.max(1, height >> level);
 
                 if (isCubemap) {
                     for (int face = 0; face < 6; face++) {
-                        GLES20.glTexImage2D(34069 + face, level, internalFormat, w, h, 0, externalFormat, type, (ByteBuffer)null);
+                        GLES30.glTexImage2D(GLES30.GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, level, fallbackInternalFormat, w, h, 0, externalFormat, type, (ByteBuffer)null);
                     }
                 } else {
-                    GLES20.glTexImage2D(target, level, internalFormat, w, h, 0, externalFormat, type, (ByteBuffer)null);
+                    GLES30.glTexImage2D(target, level, fallbackInternalFormat, w, h, 0, externalFormat, type, (ByteBuffer)null);
                 }
-
-
-                err = GLES20.glGetError();
-                if (err != 0) {
-                    System.err.println("[ESCraft] Mip level " + level + " 创建失败: " + err);
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("[ESCraft] 纹理创建异常: " + e.getMessage());
-            e.printStackTrace();
-
-
-            try {
-                GLES20.glTexImage2D(target, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, (ByteBuffer)null);
-            } catch (Exception e2) {
-                throw new IllegalStateException("GLES 无法分配纹理，错误: " + GLES20.glGetError(), e2);
             }
         }
 
-        err = GLES20.glGetError();
-        if (err != 0) {
-            System.err.println("[ESCraft] 纹理创建后仍有 OpenGL 错误: " + err);
+        int err = GLES30.glGetError();
+        if (err != GLES30.GL_NO_ERROR) {
+            System.err.println("[ESCraft] 严重：创建纹理 " + name + " 最终失败: " + err + " (Size: " + width + "x" + height + ", Mips: " + mips + ")");
 
-            if (err == 1281) {
-                System.err.println("[ESCraft] 尝试 RGBA8 兜底方案...");
+            GLES30.glDeleteTextures(textureId);
+            textureId = GlStateManager._genTexture();
+            GLES30.glBindTexture(target, textureId);
 
-                GLES20.glDeleteTextures(textureId);
-                textureId = GlStateManager._genTexture();
-                GLES20.glBindTexture(target, textureId);
-                GLES20.glTexImage2D(target, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, (ByteBuffer)null);
-
-                if (GLES20.glGetError() != 0) {
-                    throw new IllegalStateException("GLES 无法分配基本纹理");
-                }
-            } else if (err == 1285) {
-                throw new TextureAllocationException("显存溢出: " + name);
-            } else {
-                throw new IllegalStateException("OpenGL 错误: " + err);
-            }
+            GLES30.glTexParameteri(target, GLES30.GL_TEXTURE_MAX_LEVEL, 0);
+            GLES30.glTexImage2D(target, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, (ByteBuffer)null);
         }
 
         GlTexture glTexture = createGlTextureInstance(usage, name, format, width, height, depth, mips, textureId);
@@ -277,12 +232,35 @@ public abstract class MixinGlBackend {
 
     @Overwrite
     private static int determineMaxTextureSize() {
-        return GLES20.glGetInteger(GLES20.GL_MAX_TEXTURE_SIZE);
+        int max = GLES20.glGetInteger(GLES20.GL_MAX_TEXTURE_SIZE);
+        return Math.min(max, 16384);
+    }
+    @Redirect(
+            method = "<init>",
+            at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glEnable(I)V"),
+            remap = false
+    )
+    private void silenceInvalidEnables(int target) {
+        if (target == 34895 || target == 34370) {
+            return;
+        }
+        GLES20.glEnable(target);
     }
 
-    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glEnable(I)V"))
-    private void redirectEnable(int target) {
-        if (target == 34895 || target == 34370) return;
-        GLES20.glEnable(target);
+    @Redirect(
+            method = "<init>",
+            at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glGetInteger(I)I"),
+            remap = false
+    )
+    private int redirectGetInteger(int pname) {
+        return GLES20.glGetInteger(pname);
+    }
+    @Redirect(
+            method = "<init>",
+            at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glGetFloat(I)F"),
+            remap = false
+    )
+    private float redirectGetFloat(int pname) {
+        return GLES20.glGetFloat(pname);
     }
 }

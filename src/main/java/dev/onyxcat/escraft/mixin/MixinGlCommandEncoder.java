@@ -12,6 +12,7 @@ import com.mojang.blaze3d.textures.TextureFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.onyxcat.escraft.mixin.ESCraftAccessors.*;
 import net.minecraft.client.gl.*;
+import net.minecraft.client.render.CloudRenderer;
 import net.minecraft.client.texture.GlTexture;
 import net.minecraft.client.texture.GlTextureView;
 import org.jspecify.annotations.Nullable;
@@ -22,10 +23,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Redirect;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -172,140 +176,128 @@ public abstract class MixinGlCommandEncoder {
         }
     }
 
-
-
-
-
     @Overwrite
-    private boolean setupRenderPass(RenderPassImpl pass, Collection<String> validationSkippedUniforms) {
-        RenderPassImplAccessor passAccess = (RenderPassImplAccessor) pass;
-        CompiledShaderPipeline pipeline = passAccess.getPipeline();
-        if (pipeline == null) return false;
+    private boolean setupRenderPass(RenderPassImpl passObj, Collection<String> validationSkippedUniforms) {
+        RenderPassImplAccessor pass = (RenderPassImplAccessor) passObj;
+        CompiledShaderPipeline pipeline = pass.getPipeline();
 
-        CompiledShaderPipelineAccessor pipelineAccess = (CompiledShaderPipelineAccessor) (Object) pipeline;
-        RenderPipeline renderPipeline = pipelineAccess.getInfo();
-        ShaderProgram shaderProgram = pipelineAccess.getProgram();
+        if (pipeline == null || pipeline.program() == ShaderProgram.INVALID) {
+            return false;
+        }
 
-        if (shaderProgram == ShaderProgram.INVALID) return false;
-
+        RenderPipeline renderPipeline = pipeline.info();
+        ShaderProgram shaderProgram = pipeline.program();
         this.setPipelineAndApplyState(renderPipeline);
 
         boolean programChanged = this.currentProgram != shaderProgram;
         if (programChanged) {
-            GLES20.glUseProgram(shaderProgram.getGlRef());
+            GlStateManager._glUseProgram(shaderProgram.getGlRef());
             this.currentProgram = shaderProgram;
         }
+        GLES32.glMemoryBarrier(GLES32.GL_BUFFER_UPDATE_BARRIER_BIT | GLES32.GL_UNIFORM_BARRIER_BIT | GLES32.GL_TEXTURE_FETCH_BARRIER_BIT);
 
-        Map<String, GlUniform> programUniforms = ((ShaderProgramAccessor) shaderProgram).getUniformsField();
-        Set<String> setSimpleUniforms = passAccess.getSetSimpleUniforms();
-        Map<String, GpuBufferSlice> simpleUniforms = passAccess.getSimpleUniforms();
-        Map<String, Object> samplerUniforms = passAccess.getSamplerUniforms();
+        Map<String, GlUniform> uniforms = shaderProgram.getUniforms();
+        Set<String> setSimpleUniforms = pass.getSetSimpleUniforms();
+        HashMap<String, GpuBufferSlice> simpleUniforms = pass.getSimpleUniforms();
 
-        for (Map.Entry<String, GlUniform> entry : programUniforms.entrySet()) {
-            String uniformName = entry.getKey();
-            boolean isSet = setSimpleUniforms.contains(uniformName);
+        for (Map.Entry<String, GlUniform> entry : uniforms.entrySet()) {
+            String name = entry.getKey();
+            boolean isUniformSet = setSimpleUniforms.contains(name);
             GlUniform glUniform = entry.getValue();
 
-            if (glUniform instanceof GlUniform.UniformBuffer) {
-                if (isSet) {
-                    GpuBufferSlice slice = simpleUniforms.get(uniformName);
+            if (glUniform instanceof GlUniform.UniformBuffer ubo) {
+                if (isUniformSet) {
+                    GpuBufferSlice slice = simpleUniforms.get(name);
                     if (slice != null) {
-                        int blockBinding = ((UniformBufferAccessor) (Object) glUniform).getBlockBinding();
-                        GLES30.glBindBufferRange(GLES30.GL_UNIFORM_BUFFER, blockBinding, getBufferId(slice.buffer()), slice.offset(), slice.length());
+                        int binding = ((UniformBufferAccessor)(Object)ubo).getBlockBinding();
+                        GLES32.glBindBufferRange(GLES32.GL_UNIFORM_BUFFER, binding, getBufferId(slice.buffer()), slice.offset(), slice.length());
                     }
                 }
             }
-            else if (glUniform instanceof GlUniform.TexelBuffer) {
-                TexelBufferAccessor texelAccess = (TexelBufferAccessor) (Object) glUniform;
-                int location = texelAccess.getLocation();
-                int samplerIndex = texelAccess.getSamplerIndex();
-                int textureGlId = texelAccess.getTexture();
-                TextureFormat format = texelAccess.getFormat();
+            else if (glUniform instanceof GlUniform.TexelBuffer tbo) {
+                TexelBufferAccessor tboAcc = (TexelBufferAccessor)(Object) tbo;
+                int samplerIndex = tboAcc.getSamplerIndex();
 
-                if (programChanged || isSet) {
-                    GLES20.glUniform1i(location, samplerIndex);
+                if (programChanged || isUniformSet) {
+                    GlStateManager._glUniform1i(tboAcc.getLocation(), samplerIndex);
                 }
 
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + samplerIndex);
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureGlId);
+                GLES32.glBindSampler(samplerIndex, 0);
+                GlStateManager._activeTexture(GLES32.GL_TEXTURE0 + samplerIndex);
+                GLES32.glBindTexture(GLES32.GL_TEXTURE_BUFFER, tboAcc.getTexture());
 
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-
-                if (isSet) {
-                    GpuBufferSlice slice = simpleUniforms.get(uniformName);
+                if (isUniformSet) {
+                    GpuBufferSlice slice = simpleUniforms.get(name);
                     if (slice != null) {
-                        GLES30.glBindBuffer(GLES30.GL_PIXEL_UNPACK_BUFFER, getBufferId(slice.buffer()));
+                        int internalFormat = name.equals("CloudFaces") ? GLES32.GL_R8I : getGlesInternalFormat(tboAcc.getFormat());
+                        int bufferId = getBufferId(slice.buffer());
 
-                        int internalFormat = toGlInternalId(format);
-                        int glFormat = GLES20.GL_RGBA;
-                        int glType = GLES20.GL_UNSIGNED_BYTE;
-                        int bpp = 4;
-
-                        String fmtName = format.toString();
-                        if (fmtName.contains("R8")) {
-                            if (fmtName.contains("UI")) {
-                                internalFormat = GLES30.GL_R8UI; glFormat = GLES30.GL_RED_INTEGER; glType = GLES20.GL_UNSIGNED_BYTE; bpp = 1;
-                            } else {
-                                internalFormat = GLES30.GL_R8; glFormat = GLES30.GL_RED; glType = GLES20.GL_UNSIGNED_BYTE; bpp = 1;
-                            }
-                        } else if (fmtName.contains("R16")) {
-                            if (fmtName.contains("UI")) {
-                                internalFormat = GLES30.GL_R16UI; glFormat = GLES30.GL_RED_INTEGER; glType = GLES20.GL_UNSIGNED_SHORT; bpp = 2;
-                            }
-                        } else if (fmtName.contains("R32")) {
-                            if (fmtName.contains("UI")) {
-                                internalFormat = GLES30.GL_R32UI; glFormat = GLES30.GL_RED_INTEGER; glType = GLES30.GL_UNSIGNED_INT; bpp = 4;
-                            }
-                        } else if (fmtName.contains("RGBA8")) {
-                            internalFormat = GLES30.GL_RGBA8; glFormat = GLES20.GL_RGBA; glType = GLES20.GL_UNSIGNED_BYTE; bpp = 4;
+                        if (slice.offset() == 0) {
+                            GLES32.glTexBuffer(GLES32.GL_TEXTURE_BUFFER, internalFormat, bufferId);
+                        } else {
+                            GLES32.glTexBufferRange(GLES32.GL_TEXTURE_BUFFER, internalFormat, bufferId, slice.offset(), slice.length());
                         }
-
-                        int width = Math.toIntExact(slice.length() / bpp);
-                        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, internalFormat, width, 1, 0, glFormat, glType, slice.offset());
-                        GLES30.glBindBuffer(GLES30.GL_PIXEL_UNPACK_BUFFER, 0);
                     }
                 }
             }
-            else if (glUniform instanceof GlUniform.Sampler) {
-                SamplerAccessor samplerAccess = (SamplerAccessor) (Object) glUniform;
-                Object samplerUniformRecord = samplerUniforms.get(uniformName);
-                if (samplerUniformRecord == null) continue;
-                try {
-                    SamplerUniformAccessor uniformAccessor = (SamplerUniformAccessor) (Object) samplerUniformRecord;
-                    GlTextureView textureView = uniformAccessor.getView();
-                    GlSampler sampler = uniformAccessor.getSampler();
-                    if (textureView == null || sampler == null) continue;
+            else if (glUniform instanceof GlUniform.Sampler sampler) {
+                SamplerAccessor samplerAcc = (SamplerAccessor)(Object)sampler;
+                String uniformName = entry.getKey();
+                HashMap<String, ?> samplerUniformsMap = pass.getSamplerUniforms();
+                Object samplerUniformObj = samplerUniformsMap.get(uniformName);
 
-                    int location = samplerAccess.getLocation();
-                    int samplerIndex = samplerAccess.getSamplerIndex();
+                if (samplerUniformObj != null) {
+                    SamplerUniformAccessor samplerUniformAcc = (SamplerUniformAccessor) samplerUniformObj;
+                    GlTextureView textureView = samplerUniformAcc.getView();
+                    int location = samplerAcc.getLocation();
+                    int samplerIndex = samplerAcc.getSamplerIndex();
 
-                    if (programChanged || isSet) {
-                        GLES20.glUniform1i(location, samplerIndex);
+                    if (programChanged || isUniformSet) {
+                        GlStateManager._glUniform1i(location, samplerIndex);
                     }
 
-                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + samplerIndex);
-                    GlTexture texture = textureView.texture();
-                    int target = ((texture.usage() & 16) != 0) ? GLES20.GL_TEXTURE_CUBE_MAP : GLES20.GL_TEXTURE_2D;
+                    GlStateManager._activeTexture(GLES32.GL_TEXTURE0 + samplerIndex);
+                    GlTexture glTexture = (GlTexture) textureView.texture();
+                    int target = ((glTexture.usage() & 16) != 0) ? GLES32.GL_TEXTURE_CUBE_MAP : GLES32.GL_TEXTURE_2D;
+                    int glId = ((GlTextureAccessor)glTexture).getGlIdField();
 
-                    GLES20.glBindTexture(target, getTextureId(texture));
-                    GLES30.glBindSampler(samplerIndex, getSamplerId(sampler));
-                    GLES20.glTexParameteri(target, GLES30.GL_TEXTURE_BASE_LEVEL, textureView.baseMipLevel());
-                    GLES20.glTexParameteri(target, GLES30.GL_TEXTURE_MAX_LEVEL, textureView.baseMipLevel() + textureView.mipLevels() - 1);
-                } catch (Exception e) { e.printStackTrace(); }
+                    if (target == GLES32.GL_TEXTURE_CUBE_MAP) {
+                        GLES32.glBindTexture(GLES32.GL_TEXTURE_CUBE_MAP, glId);
+                    } else {
+                        GlStateManager._bindTexture(glId);
+                    }
+
+                    int samplerId = ((GlSamplerAccessor) samplerUniformAcc.getSampler()).getSamplerIdField();
+                    GLES32.glBindSampler(samplerIndex, samplerId);
+
+                    int baseLevel = textureView.baseMipLevel();
+                    int maxLevel = baseLevel + textureView.mipLevels() - 1;
+                    GlStateManager._texParameter(target, GLES32.GL_TEXTURE_BASE_LEVEL, baseLevel);
+                    GlStateManager._texParameter(target, GLES32.GL_TEXTURE_MAX_LEVEL, maxLevel);
+                }
             }
         }
 
         setSimpleUniforms.clear();
-        if (pass.isScissorEnabled()) {
-            GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
-            GLES20.glScissor(pass.getScissorX(), pass.getScissorY(), pass.getScissorWidth(), pass.getScissorHeight());
+        ScissorState scissor = pass.getScissorState();
+        if (scissor.isEnabled()) {
+            GlStateManager._enableScissorTest();
+            GlStateManager._scissorBox(scissor.getX(), scissor.getY(), scissor.getWidth(), scissor.getHeight());
         } else {
-            GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
+            GlStateManager._disableScissorTest();
         }
         return true;
+    }
+
+    @Unique
+    private int getGlesInternalFormat(TextureFormat format) {
+        String name = format.toString();
+        if (name.contains("R8")) {
+            return name.contains("UI") ? GLES32.GL_R8UI : GLES32.GL_R8;
+        } else if (name.contains("R32")) {
+            return name.contains("UI") ? GLES32.GL_R32UI : GLES32.GL_R32F;
+        }
+        return GLES32.GL_RGBA8;
     }
 
     @Overwrite
@@ -479,6 +471,34 @@ public abstract class MixinGlCommandEncoder {
             }
         } else {
             throw new IllegalArgumentException("Invalid mipLevel");
+        }
+    }
+    @Redirect(method = {
+            "createRenderPass",
+            "clearColorAndDepthTextures(Lcom/mojang/blaze3d/textures/GpuTexture;ILcom/mojang/blaze3d/textures/GpuTexture;D)V",
+            "clearColorAndDepthTextures(Lcom/mojang/blaze3d/textures/GpuTexture;ILcom/mojang/blaze3d/textures/GpuTexture;DIIII)V",
+            "clearDepthTexture"
+    }, at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glClearDepth(D)V"))
+    private void redirectClearDepth(double depth) {
+        GLES20.glClearDepthf((float) depth);
+    }
+
+    @Redirect(method = {
+            "createRenderPass",
+            "clearColorTexture",
+            "clearColorAndDepthTextures(Lcom/mojang/blaze3d/textures/GpuTexture;ILcom/mojang/blaze3d/textures/GpuTexture;D)V",
+            "clearColorAndDepthTextures(Lcom/mojang/blaze3d/textures/GpuTexture;ILcom/mojang/blaze3d/textures/GpuTexture;DIIII)V"
+    }, at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glClearColor(FFFF)V"))
+    private void redirectClearColor(float red, float green, float blue, float alpha) {
+        GLES20.glClearColor(red, green, blue, alpha);
+    }
+
+    @Redirect(method = "clearDepthTexture",
+            at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glDrawBuffer(I)V"))
+    private void redirectDrawBuffer(int mode) {
+        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+            java.nio.IntBuffer buf = stack.ints(mode);
+            GLES30.glDrawBuffers(buf);
         }
     }
 }

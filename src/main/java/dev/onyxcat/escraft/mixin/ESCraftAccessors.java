@@ -7,6 +7,7 @@ import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.gl.*;
 import net.minecraft.client.texture.GlTexture;
 import net.minecraft.client.texture.GlTextureView;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.gen.Invoker;
@@ -28,30 +29,21 @@ public class ESCraftAccessors {
         @Accessor("vertexBuffers") GpuBuffer[] getVertexBuffers();
 
         @Accessor("indexBuffer") GpuBuffer getIndexBuffer();
-
+        @Accessor("setSimpleUniforms") Set<String> getSetSimpleUniforms();
 
 
         @Accessor("simpleUniforms")
         HashMap<String, GpuBufferSlice> getSimpleUniforms();
-
-
-        @Accessor("samplerUniforms") HashMap<String, Object> getSamplerUniforms();
-
-        @Accessor("setSimpleUniforms") Set<String> getSetSimpleUniforms();
+        @Accessor("scissorState")
+        net.minecraft.client.gl.ScissorState getScissorState();
+        @Accessor("samplerUniforms") HashMap<String, ?> getSamplerUniforms();
     }
-
-    
     @Mixin(targets = "net.minecraft.client.gl.RenderPassImpl$SamplerUniform")
     public interface SamplerUniformAccessor {
 
         @Accessor("view") GlTextureView getView();
         @Accessor("sampler") GlSampler getSampler();
     }
-
-
-
-
-
     @Mixin(CompiledShaderPipeline.class)
     public interface CompiledShaderPipelineAccessor {
         @Accessor("info") RenderPipeline getInfo();
@@ -60,8 +52,6 @@ public class ESCraftAccessors {
 
     @Mixin(ShaderProgram.class)
     public interface ShaderProgramAccessor {
-
-
         @Accessor("uniformsByName") Map<String, GlUniform> getUniformsField();
     }
 
@@ -89,19 +79,10 @@ public class ESCraftAccessors {
         @Accessor("id")
         int getIdField();
     }
-
-
-
-
-
-
-
     @Mixin(targets = "net.minecraft.client.gl.GlUniform$UniformBuffer")
     public interface UniformBufferAccessor {
-
         @Accessor("blockBinding") int getBlockBinding();
     }
-
 
     @Mixin(targets = "net.minecraft.client.gl.GlUniform$TexelBuffer")
     public interface TexelBufferAccessor {

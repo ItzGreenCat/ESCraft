@@ -66,14 +66,17 @@ package dev.onyxcat.escraft.mixin;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.gl.ShaderSourceGetter;
+import net.minecraft.client.util.Window;
+import net.minecraft.client.util.tracy.TracyFrameCapturer;
 import org.lwjgl.glfw.GLFW;
-import org.lwjgl.opengles.GLES;
-import org.lwjgl.opengles.GLES20;
+import org.lwjgl.opengles.*;
 import org.lwjgl.system.*;
-import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import org.lwjgl.opengles.GLES20;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -81,7 +84,6 @@ import java.util.Locale;
 
 @Mixin(RenderSystem.class)
 public class MixinRenderSystem {
-
     @Inject(method = "initRenderer", at = @At("HEAD"))
     private static void onInitRenderer(long windowHandle, int debugVerbosity, boolean sync, ShaderSourceGetter shaderSourceGetter, boolean renderDebugLabels, CallbackInfo ci) {
         System.out.println("[ESCraft] 正在初始化 RenderSystem (Mixin v4)...");
@@ -90,7 +92,6 @@ public class MixinRenderSystem {
         if (windowHandle == 0) {
             throw new RuntimeException("[ESCraft] 致命错误：窗口句柄为0。");
         }
-
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String osArch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         boolean isPC = osName.contains("windows") || (osName.contains("linux") && (osArch.contains("amd64") || osArch.contains("x86_64")));
@@ -119,7 +120,6 @@ public class MixinRenderSystem {
             } catch (Throwable t) {
                 System.err.println("[ESCraft] PC GLES 初始化异常 (可能由原版接管): " + t.getMessage());
             }
-
         } else {
             System.out.println("[ESCraft] 检测到 Android 环境，执行直连注入...");
             System.setProperty("org.lwjgl.opengl.libname", "libGLESv2.so");
@@ -135,7 +135,6 @@ public class MixinRenderSystem {
                         throw new RuntimeException("无法加载 libGLESv2.so", t);
                     }
                 }
-
                 @Override
                 public long getFunctionAddress(CharSequence functionName) {
                     try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -158,7 +157,6 @@ public class MixinRenderSystem {
                 throw new RuntimeException("[ESCraft] Android GLES 初始化失败", t);
             }
         }
-
     }
 
     private static void resetGLESState() {
@@ -172,6 +170,13 @@ public class MixinRenderSystem {
                 capsField.set(null, null);
             } catch (Exception ignored) {}
         } catch (Exception e) {
+        }
+    }
+    @Inject(method = "flipFrame",at = @At("HEAD"))
+    private static void onFlipFrame(Window window, TracyFrameCapturer capturer, CallbackInfo ci){
+        int err = GLES32.glGetError();
+        if(err != 0){
+            System.out.println("Error:"+ err);
         }
     }
 }
