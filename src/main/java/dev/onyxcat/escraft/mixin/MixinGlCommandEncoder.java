@@ -189,12 +189,13 @@ public abstract class MixinGlCommandEncoder {
         ShaderProgram shaderProgram = pipeline.program();
         this.setPipelineAndApplyState(renderPipeline);
 
-        boolean programChanged = this.currentProgram != shaderProgram;
-        if (programChanged) {
+        if (this.currentProgram != shaderProgram) {
             GlStateManager._glUseProgram(shaderProgram.getGlRef());
             this.currentProgram = shaderProgram;
         }
-        GLES32.glMemoryBarrier(GLES32.GL_BUFFER_UPDATE_BARRIER_BIT | GLES32.GL_UNIFORM_BARRIER_BIT | GLES32.GL_TEXTURE_FETCH_BARRIER_BIT);
+
+        // 内存屏障，防止异步写入导致 GPU 读到 0
+        GLES32.glMemoryBarrier(GLES32.GL_ALL_BARRIER_BITS);
 
         Map<String, GlUniform> uniforms = shaderProgram.getUniforms();
         Set<String> setSimpleUniforms = pass.getSetSimpleUniforms();
@@ -205,23 +206,18 @@ public abstract class MixinGlCommandEncoder {
             boolean isUniformSet = setSimpleUniforms.contains(name);
             GlUniform glUniform = entry.getValue();
 
-            if (glUniform instanceof GlUniform.UniformBuffer ubo) {
-                if (isUniformSet) {
-                    GpuBufferSlice slice = simpleUniforms.get(name);
-                    if (slice != null) {
-                        int binding = ((UniformBufferAccessor)(Object)ubo).getBlockBinding();
-                        GLES32.glBindBufferRange(GLES32.GL_UNIFORM_BUFFER, binding, getBufferId(slice.buffer()), slice.offset(), slice.length());
-                    }
+            if (glUniform instanceof GlUniform.UniformBuffer ubo && isUniformSet) {
+                GpuBufferSlice slice = simpleUniforms.get(name);
+                if (slice != null) {
+                    int binding = ((UniformBufferAccessor)(Object)ubo).getBlockBinding();
+                    GLES32.glBindBufferRange(GLES32.GL_UNIFORM_BUFFER, binding, getBufferId(slice.buffer()), slice.offset(), slice.length());
                 }
             }
             else if (glUniform instanceof GlUniform.TexelBuffer tbo) {
                 TexelBufferAccessor tboAcc = (TexelBufferAccessor)(Object) tbo;
                 int samplerIndex = tboAcc.getSamplerIndex();
 
-                if (programChanged || isUniformSet) {
-                    GlStateManager._glUniform1i(tboAcc.getLocation(), samplerIndex);
-                }
-
+                GlStateManager._glUniform1i(tboAcc.getLocation(), samplerIndex);
                 GLES32.glBindSampler(samplerIndex, 0);
                 GlStateManager._activeTexture(GLES32.GL_TEXTURE0 + samplerIndex);
                 GLES32.glBindTexture(GLES32.GL_TEXTURE_BUFFER, tboAcc.getTexture());
@@ -229,9 +225,11 @@ public abstract class MixinGlCommandEncoder {
                 if (isUniformSet) {
                     GpuBufferSlice slice = simpleUniforms.get(name);
                     if (slice != null) {
-                        int internalFormat = name.equals("CloudFaces") ? GLES32.GL_R8I : getGlesInternalFormat(tboAcc.getFormat());
-                        int bufferId = getBufferId(slice.buffer());
+                        // 核心修正：isamplerBuffer 必须匹配 GL_R8I (33329)
+                        // 之前日志里的 33336 (R8UI) 是无符号的，会导致采样失败
+                        int internalFormat = name.equals("CloudFaces") ? 33329 : getGlesInternalFormat(tboAcc.getFormat());
 
+                        int bufferId = getBufferId(slice.buffer());
                         if (slice.offset() == 0) {
                             GLES32.glTexBuffer(GLES32.GL_TEXTURE_BUFFER, internalFormat, bufferId);
                         } else {
@@ -242,50 +240,28 @@ public abstract class MixinGlCommandEncoder {
             }
             else if (glUniform instanceof GlUniform.Sampler sampler) {
                 SamplerAccessor samplerAcc = (SamplerAccessor)(Object)sampler;
-                String uniformName = entry.getKey();
                 HashMap<String, ?> samplerUniformsMap = pass.getSamplerUniforms();
-                Object samplerUniformObj = samplerUniformsMap.get(uniformName);
+                Object samplerUniformObj = samplerUniformsMap.get(entry.getKey());
 
                 if (samplerUniformObj != null) {
                     SamplerUniformAccessor samplerUniformAcc = (SamplerUniformAccessor) samplerUniformObj;
                     GlTextureView textureView = samplerUniformAcc.getView();
-                    int location = samplerAcc.getLocation();
                     int samplerIndex = samplerAcc.getSamplerIndex();
 
-                    if (programChanged || isUniformSet) {
-                        GlStateManager._glUniform1i(location, samplerIndex);
-                    }
-
+                    GlStateManager._glUniform1i(samplerAcc.getLocation(), samplerIndex);
                     GlStateManager._activeTexture(GLES32.GL_TEXTURE0 + samplerIndex);
+
                     GlTexture glTexture = (GlTexture) textureView.texture();
                     int target = ((glTexture.usage() & 16) != 0) ? GLES32.GL_TEXTURE_CUBE_MAP : GLES32.GL_TEXTURE_2D;
-                    int glId = ((GlTextureAccessor)glTexture).getGlIdField();
+                    GLES32.glBindTexture(target, ((GlTextureAccessor)glTexture).getGlIdField());
 
-                    if (target == GLES32.GL_TEXTURE_CUBE_MAP) {
-                        GLES32.glBindTexture(GLES32.GL_TEXTURE_CUBE_MAP, glId);
-                    } else {
-                        GlStateManager._bindTexture(glId);
-                    }
-
-                    int samplerId = ((GlSamplerAccessor) samplerUniformAcc.getSampler()).getSamplerIdField();
-                    GLES32.glBindSampler(samplerIndex, samplerId);
-
-                    int baseLevel = textureView.baseMipLevel();
-                    int maxLevel = baseLevel + textureView.mipLevels() - 1;
-                    GlStateManager._texParameter(target, GLES32.GL_TEXTURE_BASE_LEVEL, baseLevel);
-                    GlStateManager._texParameter(target, GLES32.GL_TEXTURE_MAX_LEVEL, maxLevel);
+                    GLES32.glBindSampler(samplerIndex, ((GlSamplerAccessor) samplerUniformAcc.getSampler()).getSamplerIdField());
+                    GlStateManager._texParameter(target, GLES32.GL_TEXTURE_BASE_LEVEL, textureView.baseMipLevel());
+                    GlStateManager._texParameter(target, GLES32.GL_TEXTURE_MAX_LEVEL, textureView.baseMipLevel() + textureView.mipLevels() - 1);
                 }
             }
         }
-
         setSimpleUniforms.clear();
-        ScissorState scissor = pass.getScissorState();
-        if (scissor.isEnabled()) {
-            GlStateManager._enableScissorTest();
-            GlStateManager._scissorBox(scissor.getX(), scissor.getY(), scissor.getWidth(), scissor.getHeight());
-        } else {
-            GlStateManager._disableScissorTest();
-        }
         return true;
     }
 
