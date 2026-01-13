@@ -12,8 +12,6 @@ public class MixinGlDebug {
     
     @Overwrite
     public static @Nullable GlDebug enableDebug(int verbosity, boolean sync, Set<String> usedGlCaps) {
-
-
         System.out.println("[ESCraft] 已跳过 GlDebug 初始化 (GLES 环境)");
         return null;
     }

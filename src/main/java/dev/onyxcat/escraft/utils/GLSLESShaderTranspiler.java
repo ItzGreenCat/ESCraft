@@ -15,7 +15,6 @@ public class GLSLESShaderTranspiler {
 
     public static String transpile(String originalSource, int shaderType) {
         if (originalSource == null || originalSource.isEmpty()) return originalSource;
-
         String workingSource = sanitizeSource(originalSource);
 
         long compiler = 0;
@@ -51,8 +50,11 @@ public class GLSLESShaderTranspiler {
 
             String glesSource = crossCompileToESSL(spirvIntBuffer);
             MemoryUtil.memFree(spirvIntBuffer);
-
-            return glesSource != null ? glesSource : originalSource;
+            String glesSourceTemp = glesSource != null ? glesSource.replace("uniform highp isampler2D CloudFaces","uniform highp isamplerBuffer CloudFaces") : originalSource;
+            glesSourceTemp = glesSourceTemp.replace("texelFetch(CloudFaces, ivec2(index, 0), 0)","texelFetch(CloudFaces, index)");
+            glesSourceTemp = glesSourceTemp.replace("texelFetch(CloudFaces, ivec2(index + 1, 0), 0)", "texelFetch(CloudFaces, index + 1)");
+            glesSourceTemp = glesSourceTemp.replace("texelFetch(CloudFaces, ivec2(index + 2, 0), 0)","texelFetch(CloudFaces, index + 2)");
+            return glesSourceTemp;
 
         } catch (Exception e) {
             System.err.println("[SPIRV] Transpiler Exception: " + e.getMessage());
