@@ -193,8 +193,6 @@ public abstract class MixinGlCommandEncoder {
             GlStateManager._glUseProgram(shaderProgram.getGlRef());
             this.currentProgram = shaderProgram;
         }
-
-        // 内存屏障，防止异步写入导致 GPU 读到 0
         GLES32.glMemoryBarrier(GLES32.GL_ALL_BARRIER_BITS);
 
         Map<String, GlUniform> uniforms = shaderProgram.getUniforms();
@@ -225,8 +223,6 @@ public abstract class MixinGlCommandEncoder {
                 if (isUniformSet) {
                     GpuBufferSlice slice = simpleUniforms.get(name);
                     if (slice != null) {
-                        // 核心修正：isamplerBuffer 必须匹配 GL_R8I (33329)
-                        // 之前日志里的 33336 (R8UI) 是无符号的，会导致采样失败
                         int internalFormat = name.equals("CloudFaces") ? 33329 : getGlesInternalFormat(tboAcc.getFormat());
 
                         int bufferId = getBufferId(slice.buffer());
